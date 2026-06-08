@@ -79,17 +79,13 @@
     "mac": {
       "target": [
         {
-          "target": "dmg",
-          "arch": ["x64", "arm64"]
-        },
-        {
           "target": "zip",
           "arch": ["x64", "arm64"]
         }
       ],
       "icon": "build/icon.icns",
       "category": "public.app-category.utilities",
-      "hardenedRuntime": true,
+      "hardenedRuntime": false,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist"
@@ -106,22 +102,6 @@
       "artifactName": "NeuSSH-Setup-${version}.${ext}",
       "uninstallDisplayName": "NeuSSH",
       "include": "build/installer.nsh"
-    },
-    "dmg": {
-      "title": "NeuSSH ${version}",
-      "artifactName": "NeuSSH-${version}.${ext}",
-      "contents": [
-        {
-          "x": 130,
-          "y": 220
-        },
-        {
-          "x": 410,
-          "y": 220,
-          "type": "link",
-          "path": "/Applications"
-        }
-      ]
     },
     "portable": {
       "artifactName": "NeuSSH-Portable-${version}.${ext}"
