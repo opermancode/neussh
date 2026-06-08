@@ -4,6 +4,7 @@ import TerminalPanel from './components/TerminalPanel';
 import ProfileModal from './components/ProfileModal';
 import QuickConnectModal from './components/QuickConnectModal';
 import SettingsModal from './components/SettingsModal';
+import NeuSSHLogo from './components/NeuSSHLogo';
 import { Terminal, Plus, Zap, Settings, Github } from 'lucide-react';
 
 const App = () => {
@@ -150,7 +151,7 @@ const App = () => {
         <header className="h-14 bg-dark-900 border-b border-dark-800 flex items-center justify-between px-4 shrink-0">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
-              <Terminal className="w-5 h-5 text-neussh-400" />
+              <NeuSSHLogo size="small" />
               <span className="font-bold text-lg tracking-tight text-white">
                 {appName}
               </span>
@@ -202,10 +203,8 @@ const App = () => {
           ) : (
             <div className="h-full flex flex-col items-center justify-center text-dark-500">
               <div className="mb-6">
-                <div className="w-20 h-20 bg-dark-800 rounded-2xl flex items-center justify-center mb-4 mx-auto">
-                  <Terminal className="w-10 h-10 text-neussh-500 opacity-60" />
-                </div>
-                <p className="text-xl font-semibold text-dark-300 mb-2 text-center">No Active Connection</p>
+                <NeuSSHLogo size="xl" />
+                <p className="text-xl font-semibold text-dark-300 mb-2 text-center mt-4">No Active Connection</p>
                 <p className="text-sm text-dark-600 text-center max-w-md">
                   Select a saved server from the sidebar or use Quick Connect to start an SSH session
                 </p>
