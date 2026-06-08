@@ -105,12 +105,6 @@
     },
     "portable": {
       "artifactName": "NeuSSH-Portable-${version}.${ext}"
-    },
-    "publish": {
-      "provider": "github",
-      "owner": "neussh",
-      "repo": "neussh",
-      "releaseType": "release"
     }
   },
   "dependencies": {
