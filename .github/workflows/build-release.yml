@@ -15,9 +15,6 @@ env:
   NODE_VERSION: '20'
 
 jobs:
-  # ============================================================
-  # BUILD FOR WINDOWS
-  # ============================================================
   build-windows:
     runs-on: windows-latest
     steps:
@@ -40,8 +37,6 @@ jobs:
 
       - name: 📦 Build Windows installer
         run: npm run build:win
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 📤 Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -53,9 +48,6 @@ jobs:
           if-no-files-found: error
           retention-days: 5
 
-  # ============================================================
-  # BUILD FOR MACOS (Intel + Apple Silicon)
-  # ============================================================
   build-macos:
     runs-on: macos-latest
     steps:
@@ -78,8 +70,6 @@ jobs:
 
       - name: 📦 Build macOS DMG (Universal)
         run: npm run build:mac
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 📤 Upload macOS artifacts
         uses: actions/upload-artifact@v4
@@ -91,9 +81,6 @@ jobs:
           if-no-files-found: error
           retention-days: 5
 
-  # ============================================================
-  # CREATE GITHUB RELEASE
-  # ============================================================
   release:
     needs: [build-windows, build-macos]
     runs-on: ubuntu-latest
@@ -141,8 +128,8 @@ jobs:
 
           | Platform | Installer | Portable | Architecture |
           |----------|-----------|----------|--------------|
-          | **Windows** | \`NeuSSH-Setup-${VERSION}.exe\` | \`NeuSSH-Portable-${VERSION}.exe\` | x64, x86 |
-          | **macOS** | \`NeuSSH-${VERSION}.dmg\` | \`NeuSSH-${VERSION}.zip\` | Intel + Apple Silicon |
+          | **Windows** | NeuSSH-Setup-${VERSION}.exe | NeuSSH-Portable-${VERSION}.exe | x64, x86 |
+          | **macOS** | NeuSSH-${VERSION}.dmg | NeuSSH-${VERSION}.zip | Intel + Apple Silicon |
 
           ### ✨ Features
           - 🖥️ Modern xterm.js terminal with 256 colors
@@ -155,11 +142,11 @@ jobs:
           ### 🔧 Installation
 
           **Windows:**
-          - Download \`NeuSSH-Setup-${VERSION}.exe\` and run the installer
-          - Or use \`NeuSSH-Portable-${VERSION}.exe\` for no installation
+          - Download NeuSSH-Setup-${VERSION}.exe and run the installer
+          - Or use NeuSSH-Portable-${VERSION}.exe for no installation
 
           **macOS:**
-          - Download \`NeuSSH-${VERSION}.dmg\`
+          - Download NeuSSH-${VERSION}.dmg
           - Open the DMG and drag NeuSSH to Applications
           - On first launch, right-click → Open (Gatekeeper)
           - Universal binary works on both Intel and Apple Silicon Macs
@@ -186,8 +173,6 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: ✅ Release Complete
         run: |
