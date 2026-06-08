@@ -27,7 +27,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          # cache removed - no lock file needed
 
       - name: 📦 Install dependencies
         run: npm install
@@ -37,6 +36,8 @@ jobs:
 
       - name: 📦 Build Windows installer
         run: npm run build:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 📤 Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -60,7 +61,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          # cache removed - no lock file needed
 
       - name: 📦 Install dependencies
         run: npm install
@@ -68,15 +68,16 @@ jobs:
       - name: 🏗️ Build renderer
         run: npm run build:renderer
 
-      - name: 📦 Build macOS DMG (Universal)
+      - name: 📦 Build macOS ZIP
         run: npm run build:mac
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 📤 Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
           name: macos-artifacts
           path: |
-            dist/NeuSSH-*.dmg
             dist/NeuSSH-*.zip
           if-no-files-found: error
           retention-days: 5
@@ -102,7 +103,6 @@ jobs:
           ls -la artifacts/*.exe 2>/dev/null || echo "No .exe files found"
           echo ""
           echo "=== macOS Artifacts ==="
-          ls -la artifacts/*.dmg 2>/dev/null || echo "No .dmg files found"
           ls -la artifacts/*.zip 2>/dev/null || echo "No .zip files found"
           echo ""
           echo "=== File sizes ==="
@@ -129,7 +129,7 @@ jobs:
           | Platform | Installer | Portable | Architecture |
           |----------|-----------|----------|--------------|
           | **Windows** | NeuSSH-Setup-${VERSION}.exe | NeuSSH-Portable-${VERSION}.exe | x64, x86 |
-          | **macOS** | NeuSSH-${VERSION}.dmg | NeuSSH-${VERSION}.zip | Intel + Apple Silicon |
+          | **macOS** | NeuSSH-${VERSION}-mac.zip | NeuSSH-${VERSION}-arm64-mac.zip | Intel + Apple Silicon |
 
           ### ✨ Features
           - 🖥️ Modern xterm.js terminal with 256 colors
@@ -146,10 +146,9 @@ jobs:
           - Or use NeuSSH-Portable-${VERSION}.exe for no installation
 
           **macOS:**
-          - Download NeuSSH-${VERSION}.dmg
-          - Open the DMG and drag NeuSSH to Applications
+          - Download NeuSSH-${VERSION}-mac.zip (Intel) or NeuSSH-${VERSION}-arm64-mac.zip (Apple Silicon)
+          - Extract and drag NeuSSH to Applications
           - On first launch, right-click → Open (Gatekeeper)
-          - Universal binary works on both Intel and Apple Silicon Macs
 
           ### 🔒 Security
           - AES-256 encrypted local storage
@@ -168,7 +167,6 @@ jobs:
           files: |
             artifacts/NeuSSH-Setup-*.exe
             artifacts/NeuSSH-Portable-*.exe
-            artifacts/NeuSSH-*.dmg
             artifacts/NeuSSH-*.zip
           draft: false
           prerelease: false
