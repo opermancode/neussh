@@ -1,0 +1,197 @@
+name: 🚀 Build & Release NeuSSH (macOS + Windows)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g., 1.0.0)'
+        required: true
+        default: '1.0.0'
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # ============================================================
+  # BUILD FOR WINDOWS
+  # ============================================================
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🔧 Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: 📦 Install dependencies
+        run: npm ci
+
+      - name: 🏗️ Build renderer
+        run: npm run build:renderer
+
+      - name: 📦 Build Windows installer
+        run: npm run build:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📤 Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-artifacts
+          path: |
+            dist/NeuSSH-Setup-*.exe
+            dist/NeuSSH-Portable-*.exe
+          if-no-files-found: error
+          retention-days: 5
+
+  # ============================================================
+  # BUILD FOR MACOS (Intel + Apple Silicon)
+  # ============================================================
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🔧 Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: 📦 Install dependencies
+        run: npm ci
+
+      - name: 🏗️ Build renderer
+        run: npm run build:renderer
+
+      - name: 📦 Build macOS DMG (Universal)
+        run: npm run build:mac
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📤 Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-artifacts
+          path: |
+            dist/NeuSSH-*.dmg
+            dist/NeuSSH-*.zip
+          if-no-files-found: error
+          retention-days: 5
+
+  # ============================================================
+  # CREATE GITHUB RELEASE
+  # ============================================================
+  release:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 📥 Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: 📋 Verify artifacts
+        run: |
+          echo "=== Windows Artifacts ==="
+          ls -la artifacts/*.exe 2>/dev/null || echo "No .exe files found"
+          echo ""
+          echo "=== macOS Artifacts ==="
+          ls -la artifacts/*.dmg 2>/dev/null || echo "No .dmg files found"
+          ls -la artifacts/*.zip 2>/dev/null || echo "No .zip files found"
+          echo ""
+          echo "=== File sizes ==="
+          du -sh artifacts/*
+
+      - name: 🏷️ Extract version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION"
+
+      - name: 📝 Generate Release Notes
+        id: release_notes
+        run: |
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          cat > RELEASE_NOTES.md << EOF
+          ## 🔐 NeuSSH v${VERSION}
+
+          **Modern SSH Connection Manager — Better than PuTTY**
+
+          ### 📦 Downloads
+
+          | Platform | Installer | Portable | Architecture |
+          |----------|-----------|----------|--------------|
+          | **Windows** | \`NeuSSH-Setup-${VERSION}.exe\` | \`NeuSSH-Portable-${VERSION}.exe\` | x64, x86 |
+          | **macOS** | \`NeuSSH-${VERSION}.dmg\` | \`NeuSSH-${VERSION}.zip\` | Intel + Apple Silicon |
+
+          ### ✨ Features
+          - 🖥️ Modern xterm.js terminal with 256 colors
+          - 🔑 Universal key support (.pem, .ppk, .key, .ed25519)
+          - 💾 Encrypted profile storage with import/export
+          - ⚡ One-click server connections
+          - 🔍 Real-time server search
+          - 🌙 Beautiful dark UI
+
+          ### 🔧 Installation
+
+          **Windows:**
+          - Download \`NeuSSH-Setup-${VERSION}.exe\` and run the installer
+          - Or use \`NeuSSH-Portable-${VERSION}.exe\` for no installation
+
+          **macOS:**
+          - Download \`NeuSSH-${VERSION}.dmg\`
+          - Open the DMG and drag NeuSSH to Applications
+          - On first launch, right-click → Open (Gatekeeper)
+          - Universal binary works on both Intel and Apple Silicon Macs
+
+          ### 🔒 Security
+          - AES-256 encrypted local storage
+          - No telemetry or data collection
+          - Keys never leave your machine
+
+          ---
+          **Full Changelog**: https://github.com/${{ github.repository }}/compare/v${VERSION}...main
+          EOF
+
+      - name: 🚀 Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: "🔐 NeuSSH v${{ steps.get_version.outputs.VERSION }}"
+          body_path: RELEASE_NOTES.md
+          files: |
+            artifacts/NeuSSH-Setup-*.exe
+            artifacts/NeuSSH-Portable-*.exe
+            artifacts/NeuSSH-*.dmg
+            artifacts/NeuSSH-*.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: ✅ Release Complete
+        run: |
+          echo "🎉 NeuSSH v${{ steps.get_version.outputs.VERSION }} released successfully!"
+          echo ""
+          echo "📥 Download links:"
+          echo "  https://github.com/${{ github.repository }}/releases/tag/v${{ steps.get_version.outputs.VERSION }}"
