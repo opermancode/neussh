@@ -4,6 +4,7 @@ import {
   Key, Lock, Shield, Globe, ChevronRight, 
   Download, Upload
 } from 'lucide-react';
+import NeuSSHLogo from './NeuSSHLogo';
 
 const Sidebar = ({ 
   profiles, selectedProfile, onSelectProfile, onConnect, 
@@ -29,9 +30,7 @@ const Sidebar = ({
       <div className="p-4 border-b border-dark-800">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-neussh-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-sm">N</span>
-            </div>
+            <NeuSSHLogo size="small" />
             <div>
               <span className="font-bold text-dark-100 text-sm">NeuSSH</span>
               <span className="text-xs text-dark-500 ml-2">{profiles.length} servers</span>
