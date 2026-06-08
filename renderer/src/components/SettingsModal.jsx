@@ -1,5 +1,6 @@
 import React from 'react';
 import { X, Upload, Download, Github, Globe, Heart } from 'lucide-react';
+import NeuSSHLogo from './NeuSSHLogo';
 
 const SettingsModal = ({ onImport, onExport, onClose }) => {
   return (
@@ -45,9 +46,7 @@ const SettingsModal = ({ onImport, onExport, onClose }) => {
             <h3 className="text-sm font-medium text-dark-300 mb-3">About NeuSSH</h3>
             <div className="bg-dark-800 rounded-xl p-4">
               <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 bg-neussh-600 rounded-xl flex items-center justify-center">
-                  <span className="text-white font-bold">N</span>
-                </div>
+                <NeuSSHLogo size="large" />
                 <div>
                   <div className="font-semibold text-dark-100">NeuSSH</div>
                   <div className="text-xs text-dark-500">Modern SSH Connection Manager</div>
