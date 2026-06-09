@@ -9,6 +9,7 @@ const TerminalPanel = ({ connectionId, profile, onDisconnect }) => {
   const xtermRef = useRef(null);
   const fitAddonRef = useRef(null);
   const resizeObserverRef = useRef(null);
+  const cleanupRef = useRef(null);
 
   // Initialize terminal
   useEffect(() => {
@@ -103,10 +104,17 @@ const TerminalPanel = ({ connectionId, profile, onDisconnect }) => {
       }
     }, 100);
 
-    return () => {
+    // Store cleanup
+    cleanupRef.current = () => {
       cleanupData();
       resizeObserver.disconnect();
       term.dispose();
+    };
+
+    return () => {
+      if (cleanupRef.current) {
+        cleanupRef.current();
+      }
     };
   }, [connectionId]);
 
