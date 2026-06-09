@@ -35,7 +35,6 @@ function createWindow() {
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js')
     },
-    icon: path.join(__dirname, '../build/icon.png'),
     show: false,
     backgroundColor: '#0f172a'
   });
