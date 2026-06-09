@@ -7,14 +7,17 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to build (e.g., 1.0.0)'
+        description: 'Version to build (e.g., 0.2.0)'
         required: true
-        default: '1.0.0'
+        default: '0.2.0'
 
 env:
   NODE_VERSION: '20'
 
 jobs:
+  # ============================================================
+  # BUILD FOR WINDOWS
+  # ============================================================
   build-windows:
     runs-on: windows-latest
     steps:
@@ -28,6 +31,28 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
+      - name: 🏷️ Extract version from tag
+        id: get_version
+        shell: bash
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      - name: 📝 Update package.json version
+        shell: bash
+        run: |
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          # Update package.json version using Node.js
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = '$VERSION';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+            console.log('Updated package.json version to:', pkg.version);
+          "
+          cat package.json | grep '"version"'
+
       - name: 📦 Install dependencies
         run: npm install
 
@@ -36,8 +61,6 @@ jobs:
 
       - name: 📦 Build Windows installer
         run: npm run build:win
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 📤 Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -49,6 +72,9 @@ jobs:
           if-no-files-found: error
           retention-days: 5
 
+  # ============================================================
+  # BUILD FOR MACOS (Intel + Apple Silicon)
+  # ============================================================
   build-macos:
     runs-on: macos-latest
     steps:
@@ -62,6 +88,25 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
+      - name: 🏷️ Extract version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      - name: 📝 Update package.json version
+        run: |
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = '$VERSION';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+            console.log('Updated package.json version to:', pkg.version);
+          "
+          cat package.json | grep '"version"'
+
       - name: 📦 Install dependencies
         run: npm install
 
@@ -70,8 +115,6 @@ jobs:
 
       - name: 📦 Build macOS ZIP
         run: npm run build:mac
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 📤 Upload macOS artifacts
         uses: actions/upload-artifact@v4
@@ -82,6 +125,9 @@ jobs:
           if-no-files-found: error
           retention-days: 5
 
+  # ============================================================
+  # CREATE GITHUB RELEASE
+  # ============================================================
   release:
     needs: [build-windows, build-macos]
     runs-on: ubuntu-latest
@@ -91,6 +137,13 @@ jobs:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
 
+      - name: 🏷️ Extract version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Release version: $VERSION"
+
       - name: 📥 Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -99,71 +152,54 @@ jobs:
 
       - name: 📋 Verify artifacts
         run: |
-          echo "=== Windows Artifacts ==="
-          ls -la artifacts/*.exe 2>/dev/null || echo "No .exe files found"
-          echo ""
-          echo "=== macOS Artifacts ==="
-          ls -la artifacts/*.zip 2>/dev/null || echo "No .zip files found"
+          echo "=== All Artifacts ==="
+          ls -la artifacts/
           echo ""
           echo "=== File sizes ==="
           du -sh artifacts/*
-
-      - name: 🏷️ Extract version from tag
-        id: get_version
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          echo "Extracted version: $VERSION"
-
-      - name: 📝 Generate Release Notes
-        id: release_notes
-        run: |
-          VERSION="${{ steps.get_version.outputs.VERSION }}"
-          cat > RELEASE_NOTES.md << EOF
-          ## 🔐 NeuSSH v${VERSION}
-
-          **Modern SSH Connection Manager — Better than PuTTY**
-
-          ### 📦 Downloads
-
-          | Platform | Installer | Portable | Architecture |
-          |----------|-----------|----------|--------------|
-          | **Windows** | NeuSSH-Setup-${VERSION}.exe | NeuSSH-Portable-${VERSION}.exe | x64, x86 |
-          | **macOS** | NeuSSH-${VERSION}-mac.zip | NeuSSH-${VERSION}-arm64-mac.zip | Intel + Apple Silicon |
-
-          ### ✨ Features
-          - 🖥️ Modern xterm.js terminal with 256 colors
-          - 🔑 Universal key support (.pem, .ppk, .key, .ed25519)
-          - 💾 Encrypted profile storage with import/export
-          - ⚡ One-click server connections
-          - 🔍 Real-time server search
-          - 🌙 Beautiful dark UI
-
-          ### 🔧 Installation
-
-          **Windows:**
-          - Download NeuSSH-Setup-${VERSION}.exe and run the installer
-          - Or use NeuSSH-Portable-${VERSION}.exe for no installation
-
-          **macOS:**
-          - Download NeuSSH-${VERSION}-mac.zip (Intel) or NeuSSH-${VERSION}-arm64-mac.zip (Apple Silicon)
-          - Extract and drag NeuSSH to Applications
-          - On first launch, right-click → Open (Gatekeeper)
-
-          ### 🔒 Security
-          - AES-256 encrypted local storage
-          - No telemetry or data collection
-          - Keys never leave your machine
-
-          ---
-          **Full Changelog**: https://github.com/${{ github.repository }}/compare/v${VERSION}...main
-          EOF
 
       - name: 🚀 Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           name: "🔐 NeuSSH v${{ steps.get_version.outputs.VERSION }}"
-          body_path: RELEASE_NOTES.md
+          body: |
+            ## 🔐 NeuSSH v${{ steps.get_version.outputs.VERSION }}
+
+            **Modern SSH Connection Manager — Better than PuTTY**
+
+            ### 📦 Downloads
+
+            | Platform | Installer | Portable | Architecture |
+            |----------|-----------|----------|--------------|
+            | **Windows** | `NeuSSH-Setup-${{ steps.get_version.outputs.VERSION }}.exe` | `NeuSSH-Portable-${{ steps.get_version.outputs.VERSION }}.exe` | x64, x86 |
+            | **macOS** | `NeuSSH-${{ steps.get_version.outputs.VERSION }}-mac.zip` | `NeuSSH-${{ steps.get_version.outputs.VERSION }}-arm64-mac.zip` | Intel + Apple Silicon |
+
+            ### ✨ Features
+            - 🖥️ Modern xterm.js terminal with 256 colors
+            - 🔑 Universal key support (.pem, .ppk, .key, .ed25519)
+            - 💾 Encrypted profile storage with import/export
+            - ⚡ One-click server connections
+            - 🔍 Real-time server search
+            - 🌙 Beautiful dark UI
+
+            ### 🔧 Installation
+
+            **Windows:**
+            - Download `NeuSSH-Setup-${{ steps.get_version.outputs.VERSION }}.exe` and run the installer
+            - Or use `NeuSSH-Portable-${{ steps.get_version.outputs.VERSION }}.exe` for no installation
+
+            **macOS:**
+            - Download `NeuSSH-${{ steps.get_version.outputs.VERSION }}-mac.zip` (Intel) or `NeuSSH-${{ steps.get_version.outputs.VERSION }}-arm64-mac.zip` (Apple Silicon)
+            - Extract and drag NeuSSH to Applications
+            - On first launch, right-click → Open (Gatekeeper)
+
+            ### 🔒 Security
+            - AES-256 encrypted local storage
+            - No telemetry or data collection
+            - Keys never leave your machine
+
+            ---
+            **Full Changelog**: https://github.com/${{ github.repository }}/compare/v${{ steps.get_version.outputs.VERSION }}...main
           files: |
             artifacts/NeuSSH-Setup-*.exe
             artifacts/NeuSSH-Portable-*.exe
