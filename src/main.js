@@ -248,12 +248,17 @@ ipcMain.handle('ssh:connect', async (event, profile) => {
           // Store stream reference
           conn._stream = stream;
           
-          // Setup data listener
+          // Setup data listener - CHECK IF WINDOW EXISTS
           const onData = (data) => {
             try {
-              event.sender.send(`ssh:data:${connectionId}`, data.toString('utf-8'));
+              // Check if sender window still exists and is not destroyed
+              if (event.sender && !event.sender.isDestroyed()) {
+                event.sender.send(`ssh:data:${connectionId}`, data.toString('utf-8'));
+              }
             } catch (e) {
-              console.error('Error sending SSH data:', e.message);
+              // Window destroyed, ignore error
+              console.log(`Window destroyed for connection ${connectionId}, stopping data stream`);
+              stream.close();
             }
           };
           stream.on('data', onData);
@@ -261,7 +266,9 @@ ipcMain.handle('ssh:connect', async (event, profile) => {
           // Setup close listener
           const onClose = () => {
             try {
-              event.sender.send(`ssh:close:${connectionId}`);
+              if (event.sender && !event.sender.isDestroyed()) {
+                event.sender.send(`ssh:close:${connectionId}`);
+              }
             } catch (e) {
               // Window may be closed
             }
