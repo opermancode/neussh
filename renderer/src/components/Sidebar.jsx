@@ -9,7 +9,7 @@ import NeuSSHLogo from './NeuSSHLogo';
 const Sidebar = ({ 
   profiles, selectedProfile, onSelectProfile, onConnect, 
   onEdit, onDelete, onAdd, onQuickConnect, onImport, onExport,
-  searchQuery, onSearchChange, connectionStatus, activeConnection,
+  searchQuery, onSearchChange, connections, activeConnectionId,
   isLoading
 }) => {
   // Memoize auth icon renderer
@@ -27,15 +27,25 @@ const Sidebar = ({
     return ext ? `${ext} Key` : 'Key';
   }, []);
 
+  // Check if profile is connected
+  const isProfileConnected = useMemo(() => (profileId) => {
+    return Array.from(connections.values()).some(conn => conn.profile.id === profileId);
+  }, [connections]);
+
+  // Get connection for profile
+  const getProfileConnection = useMemo(() => (profileId) => {
+    return Array.from(connections.values()).find(conn => conn.profile.id === profileId);
+  }, [connections]);
+
   // Memoize sorted profiles (connected first, then alphabetical)
   const sortedProfiles = useMemo(() => {
     return [...profiles].sort((a, b) => {
-      const aConnected = activeConnection?.profile?.id === a.id ? 1 : 0;
-      const bConnected = activeConnection?.profile?.id === b.id ? 1 : 0;
+      const aConnected = isProfileConnected(a.id) ? 1 : 0;
+      const bConnected = isProfileConnected(b.id) ? 1 : 0;
       if (aConnected !== bConnected) return bConnected - aConnected;
       return a.name?.localeCompare(b.name) || 0;
     });
-  }, [profiles, activeConnection]);
+  }, [profiles, isProfileConnected]);
 
   return (
     <div className="w-80 bg-dark-900 border-r border-dark-800 flex flex-col shrink-0">
@@ -50,7 +60,7 @@ const Sidebar = ({
                 {isLoading ? (
                   <Loader2 className="w-3 h-3 animate-spin inline" />
                 ) : (
-                  `${profiles.length} servers`
+                  `${profiles.length} servers${connections.size > 0 ? ` • ${connections.size} active` : ''}`
                 )}
               </span>
             </div>
@@ -101,14 +111,22 @@ const Sidebar = ({
           <div className="p-2 space-y-1">
             {sortedProfiles.map((profile) => {
               const isActive = selectedProfile?.id === profile.id;
-              const isConnected = activeConnection?.profile?.id === profile.id;
+              const isConnected = isProfileConnected(profile.id);
+              const connection = getProfileConnection(profile.id);
+              const isActiveConnection = connection?.id === activeConnectionId;
               
               return (
                 <div
                   key={profile.id}
-                  onClick={() => onSelectProfile(profile)}
+                  onClick={() => {
+                    onSelectProfile(profile);
+                    if (isConnected && connection) {
+                      // Switch to existing connection
+                      onConnect(profile);
+                    }
+                  }}
                   className={`group relative p-3 rounded-xl cursor-pointer transition-all ${
-                    isActive 
+                    isActive || isActiveConnection
                       ? 'bg-neussh-500/10 border border-neussh-500/30' 
                       : 'hover:bg-dark-800 border border-transparent'
                   }`}
@@ -120,7 +138,12 @@ const Sidebar = ({
                           {profile.name}
                         </h3>
                         {isConnected && (
-                          <span className="status-dot connected shrink-0" title="Connected" />
+                          <span 
+                            className={`w-2 h-2 rounded-full shrink-0 ${
+                              isActiveConnection ? 'bg-emerald-400 animate-pulse' : 'bg-emerald-600'
+                            }`}
+                            title={isActiveConnection ? 'Active' : 'Connected (background)'}
+                          />
                         )}
                       </div>
                       
@@ -143,7 +166,7 @@ const Sidebar = ({
                       <button
                         onClick={(e) => { e.stopPropagation(); onConnect(profile); }}
                         className="p-1 hover:bg-neussh-500/20 rounded-lg text-neussh-400"
-                        title="Connect"
+                        title={isConnected ? 'Switch to this server' : 'Connect'}
                       >
                         <ChevronRight className="w-4 h-4" />
                       </button>
