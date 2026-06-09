@@ -72,7 +72,6 @@
           "arch": ["x64"]
         }
       ],
-      "icon": "build/icon.ico",
       "publisherName": "NeuSSH",
       "verifyUpdateCodeSignature": false
     },
@@ -83,7 +82,6 @@
           "arch": ["x64", "arm64"]
         }
       ],
-      "icon": "build/icon.icns",
       "category": "public.app-category.utilities",
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
@@ -96,8 +94,6 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "NeuSSH",
-      "installerIcon": "build/icon.ico",
-      "uninstallerIcon": "build/icon.ico",
       "license": "LICENSE",
       "artifactName": "NeuSSH-Setup-${version}.${ext}",
       "uninstallDisplayName": "NeuSSH",
