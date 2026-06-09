@@ -1,21 +1,21 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Sidebar from './components/Sidebar';
 import TerminalPanel from './components/TerminalPanel';
 import ProfileModal from './components/ProfileModal';
 import QuickConnectModal from './components/QuickConnectModal';
 import SettingsModal from './components/SettingsModal';
 import NeuSSHLogo from './components/NeuSSHLogo';
-import { Terminal, Plus, Zap, Settings, Github, AlertCircle } from 'lucide-react';
+import { Terminal, Plus, Zap, Settings, Github, AlertCircle, X } from 'lucide-react';
 
 const App = () => {
   const [profiles, setProfiles] = useState([]);
-  const [activeConnection, setActiveConnection] = useState(null);
+  const [connections, setConnections] = useState(new Map()); // Map<<connectionId, connection>
+  const [activeConnectionId, setActiveConnectionId] = useState(null);
   const [selectedProfile, setSelectedProfile] = useState(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showQuickConnect, setShowQuickConnect] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [editingProfile, setEditingProfile] = useState(null);
-  const [connectionStatus, setConnectionStatus] = useState('disconnected');
   const [searchQuery, setSearchQuery] = useState('');
   const [version, setVersion] = useState('');
   const [appName, setAppName] = useState('NeuSSH');
@@ -50,61 +50,119 @@ const App = () => {
     }
   };
 
+  // Connect to server or switch to existing connection
   const handleConnect = useCallback(async (profile) => {
-    // Disconnect existing connection
-    if (activeConnection) {
-      try {
-        await window.neusshAPI.disconnectSSH(activeConnection.id);
-      } catch (err) {
-        console.error('Error disconnecting:', err);
-      }
+    // Check if already connected to this profile
+    const existingConnection = Array.from(connections.values()).find(
+      conn => conn.profile.id === profile.id
+    );
+
+    if (existingConnection) {
+      // Switch to existing connection
+      setActiveConnectionId(existingConnection.id);
+      setSelectedProfile(profile);
+      return;
     }
-    
-    setConnectionStatus('connecting');
-    setSelectedProfile(profile);
+
+    // Create new connection
+    setIsLoading(true);
     setError(null);
     
     try {
       const result = await window.neusshAPI.connectSSH(profile);
       
       if (result.success) {
-        setActiveConnection({
+        const newConnection = {
           id: result.connectionId,
           profile,
-          startTime: new Date()
-        });
-        setConnectionStatus('connected');
+          startTime: new Date(),
+          status: 'connected'
+        };
         
-        // Setup close listener with cleanup
-        const cleanup = window.neusshAPI.onSSHClose(result.connectionId, () => {
-          setActiveConnection(null);
-          setConnectionStatus('disconnected');
-        });
+        setConnections(prev => new Map(prev).set(result.connectionId, newConnection));
+        setActiveConnectionId(result.connectionId);
+        setSelectedProfile(profile);
         
-        // Store cleanup for later
-        return () => cleanup();
+        // Setup close listener
+        window.neusshAPI.onSSHClose(result.connectionId, () => {
+          setConnections(prev => {
+            const newMap = new Map(prev);
+            newMap.delete(result.connectionId);
+            return newMap;
+          });
+          if (activeConnectionId === result.connectionId) {
+            setActiveConnectionId(null);
+          }
+        });
       } else {
-        setConnectionStatus('disconnected');
         setError(`Connection failed: ${result.error}`);
       }
     } catch (err) {
-      setConnectionStatus('disconnected');
       setError(`Connection error: ${err.message}`);
+    } finally {
+      setIsLoading(false);
     }
-  }, [activeConnection]);
+  }, [connections, activeConnectionId]);
 
-  const handleDisconnect = useCallback(async () => {
-    if (activeConnection) {
+  // Disconnect specific connection
+  const handleDisconnect = useCallback(async (connectionId) => {
+    const connection = connections.get(connectionId);
+    if (!connection) return;
+
+    try {
+      await window.neusshAPI.disconnectSSH(connectionId);
+      
+      setConnections(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(connectionId);
+        return newMap;
+      });
+      
+      if (activeConnectionId === connectionId) {
+        // Switch to another connection if available
+        const remaining = Array.from(connections.values()).filter(c => c.id !== connectionId);
+        if (remaining.length > 0) {
+          setActiveConnectionId(remaining[0].id);
+          setSelectedProfile(remaining[0].profile);
+        } else {
+          setActiveConnectionId(null);
+          setSelectedProfile(null);
+        }
+      }
+    } catch (err) {
+      console.error('Error disconnecting:', err);
+      setError('Failed to disconnect');
+    }
+  }, [connections, activeConnectionId]);
+
+  // Disconnect all connections
+  const handleDisconnectAll = useCallback(async () => {
+    for (const [id] of connections) {
       try {
-        await window.neusshAPI.disconnectSSH(activeConnection.id);
-        setActiveConnection(null);
-        setConnectionStatus('disconnected');
+        await window.neusshAPI.disconnectSSH(id);
       } catch (err) {
-        console.error('Error disconnecting:', err);
-        setError('Failed to disconnect');
+        console.error(`Error disconnecting ${id}:`, err);
       }
     }
-  }, [activeConnection]);
+    setConnections(new Map());
+    setActiveConnectionId(null);
+    setSelectedProfile(null);
+  }, [connections]);
+
+  // Switch to connection tab
+  const handleSwitchTab = useCallback((connectionId) => {
+    const connection = connections.get(connectionId);
+    if (connection) {
+      setActiveConnectionId(connectionId);
+      setSelectedProfile(connection.profile);
+    }
+  }, [connections]);
+
+  // Close tab (disconnect)
+  const handleCloseTab = useCallback(async (connectionId, e) => {
+    e.stopPropagation();
+    await handleDisconnect(connectionId);
+  }, [handleDisconnect]);
 
   const handleSaveProfile = useCallback(async (profile) => {
     try {
@@ -190,6 +248,8 @@ const App = () => {
     );
   }, [profiles, searchQuery]);
 
+  const activeConnection = activeConnectionId ? connections.get(activeConnectionId) : null;
+
   return (
     <div className="h-screen w-screen flex bg-dark-950 text-dark-100 overflow-hidden">
       {/* Error Toast */}
@@ -217,8 +277,8 @@ const App = () => {
         onExport={handleExportProfiles}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
-        connectionStatus={connectionStatus}
-        activeConnection={activeConnection}
+        connections={connections}
+        activeConnectionId={activeConnectionId}
         isLoading={isLoading}
       />
 
@@ -238,17 +298,17 @@ const App = () => {
               {activeConnection ? activeConnection.profile.name : 'Ready'}
             </span>
             {activeConnection && (
-              <span className={`status-dot ${connectionStatus}`} />
+              <span className="status-dot connected" />
             )}
           </div>
           
           <div className="flex items-center gap-2">
-            {activeConnection && (
+            {connections.size > 0 && (
               <button
-                onClick={handleDisconnect}
+                onClick={handleDisconnectAll}
                 className="px-3 py-1.5 text-sm bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500/20 transition-colors"
               >
-                Disconnect
+                Disconnect All ({connections.size})
               </button>
             )}
             <button
@@ -269,13 +329,39 @@ const App = () => {
           </div>
         </header>
 
+        {/* Connection Tabs */}
+        {connections.size > 0 && (
+          <div className="flex bg-dark-900 border-b border-dark-800 overflow-x-auto">
+            {Array.from(connections.values()).map(connection => (
+              <button
+                key={connection.id}
+                onClick={() => handleSwitchTab(connection.id)}
+                className={`flex items-center gap-2 px-4 py-2 text-sm border-r border-dark-800 transition-colors min-w-0 ${
+                  activeConnectionId === connection.id
+                    ? 'bg-dark-800 text-dark-100 border-b-2 border-b-neussh-500'
+                    : 'text-dark-500 hover:bg-dark-800/50 hover:text-dark-300'
+                }`}
+              >
+                <span className="truncate max-w-[150px]">{connection.profile.name}</span>
+                <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                <span
+                  onClick={(e) => handleCloseTab(connection.id, e)}
+                  className="ml-1 p-0.5 hover:bg-dark-700 rounded transition-colors"
+                >
+                  <X className="w-3 h-3" />
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Terminal Area */}
         <div className="flex-1 relative">
           {activeConnection ? (
             <TerminalPanel
               connectionId={activeConnection.id}
               profile={activeConnection.profile}
-              onDisconnect={handleDisconnect}
+              onDisconnect={() => handleDisconnect(activeConnection.id)}
             />
           ) : (
             <div className="h-full flex flex-col items-center justify-center text-dark-500">
@@ -287,11 +373,13 @@ const App = () => {
                 <p className="text-sm text-dark-600 text-center max-w-md">
                   {isLoading 
                     ? 'Loading your server profiles...'
-                    : 'Select a saved server from the sidebar or use Quick Connect to start an SSH session'
+                    : connections.size > 0
+                      ? 'Select a connection tab or click a server to connect'
+                      : 'Select a saved server from the sidebar or use Quick Connect to start an SSH session'
                   }
                 </p>
               </div>
-              {!isLoading && (
+              {!isLoading && connections.size === 0 && (
                 <div className="flex gap-3">
                   <button
                     onClick={() => setShowProfileModal(true)}
