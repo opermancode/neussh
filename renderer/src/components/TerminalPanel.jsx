@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
@@ -8,7 +8,9 @@ const TerminalPanel = ({ connectionId, profile, onDisconnect }) => {
   const terminalRef = useRef(null);
   const xtermRef = useRef(null);
   const fitAddonRef = useRef(null);
+  const resizeObserverRef = useRef(null);
 
+  // Initialize terminal
   useEffect(() => {
     const term = new Terminal({
       cursorBlink: true,
@@ -38,7 +40,9 @@ const TerminalPanel = ({ connectionId, profile, onDisconnect }) => {
         brightWhite: '#f2f2f2'
       },
       scrollback: 10000,
-      allowProposedApi: true
+      allowProposedApi: true,
+      screenReaderMode: false,
+      convertEol: true
     });
 
     const fitAddon = new FitAddon();
@@ -55,52 +59,121 @@ const TerminalPanel = ({ connectionId, profile, onDisconnect }) => {
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    const cleanup = window.neusshAPI.onSSHData(connectionId, (data) => {
-      term.write(data);
+    // Setup SSH data listener
+    const cleanupData = window.neusshAPI.onSSHData(connectionId, (data) => {
+      try {
+        term.write(data);
+      } catch (e) {
+        console.error('Error writing to terminal:', e);
+      }
     });
 
-    term.onData((data) => {
-      window.neusshAPI.sendSSH(connectionId, data);
-    });
-
-    const handleResize = () => {
-      if (fitAddonRef.current) {
-        fitAddonRef.current.fit();
-        const { cols, rows } = term;
-        window.neusshAPI.resizeSSH(connectionId, cols, rows);
+    // Handle terminal input
+    const onDataHandler = (data) => {
+      try {
+        window.neusshAPI.sendSSH(connectionId, data);
+      } catch (e) {
+        console.error('Error sending SSH data:', e);
       }
     };
+    term.onData(onDataHandler);
 
-    window.addEventListener('resize', handleResize);
-    setTimeout(handleResize, 100);
+    // Handle resize with ResizeObserver
+    const resizeObserver = new ResizeObserver(() => {
+      if (fitAddonRef.current && xtermRef.current) {
+        try {
+          fitAddonRef.current.fit();
+          const { cols, rows } = xtermRef.current;
+          window.neusshAPI.resizeSSH(connectionId, cols, rows);
+        } catch (e) {
+          console.error('Error resizing terminal:', e);
+        }
+      }
+    });
+    
+    if (terminalRef.current) {
+      resizeObserver.observe(terminalRef.current);
+    }
+    resizeObserverRef.current = resizeObserver;
+
+    // Initial resize
+    setTimeout(() => {
+      if (fitAddonRef.current) {
+        fitAddonRef.current.fit();
+      }
+    }, 100);
 
     return () => {
-      cleanup();
-      window.removeEventListener('resize', handleResize);
+      cleanupData();
+      resizeObserver.disconnect();
       term.dispose();
     };
   }, [connectionId]);
 
+  // Handle copy/paste
   useEffect(() => {
     const term = xtermRef.current;
     if (!term) return;
 
     const handleKey = (e) => {
+      // Copy: Ctrl+C (with selection)
       if (e.ctrlKey && e.key === 'c' && term.hasSelection()) {
         e.preventDefault();
-        navigator.clipboard.writeText(term.getSelection());
+        const selection = term.getSelection();
+        navigator.clipboard.writeText(selection).catch(err => {
+          console.error('Copy failed:', err);
+        });
       }
+      
+      // Paste: Ctrl+V
       if (e.ctrlKey && e.key === 'v') {
         e.preventDefault();
         navigator.clipboard.readText().then(text => {
-          window.neusshAPI.sendSSH(connectionId, text);
+          if (text) {
+            window.neusshAPI.sendSSH(connectionId, text);
+          }
+        }).catch(err => {
+          console.error('Paste failed:', err);
         });
+      }
+      
+      // Select All: Ctrl+A
+      if (e.ctrlKey && e.key === 'a') {
+        e.preventDefault();
+        term.selectAll();
       }
     };
 
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
   }, [connectionId]);
+
+  // Handle selection for copy
+  const handleCopy = useCallback(() => {
+    const term = xtermRef.current;
+    if (term && term.hasSelection()) {
+      navigator.clipboard.writeText(term.getSelection()).catch(err => {
+        console.error('Copy failed:', err);
+      });
+    }
+  }, []);
+
+  const handlePaste = useCallback(() => {
+    navigator.clipboard.readText().then(text => {
+      if (text) {
+        window.neusshAPI.sendSSH(connectionId, text);
+      }
+    }).catch(err => {
+      console.error('Paste failed:', err);
+    });
+  }, [connectionId]);
+
+  const handleSelectAll = useCallback(() => {
+    const term = xtermRef.current;
+    if (term) {
+      term.selectAll();
+    }
+  }, []);
 
   return (
     <div className="h-full flex flex-col bg-[#0c0c0c]">
@@ -116,26 +189,29 @@ const TerminalPanel = ({ connectionId, profile, onDisconnect }) => {
             Connected
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
           <button
-            onClick={() => {
-              const term = xtermRef.current;
-              if (term) navigator.clipboard.writeText(term.getSelection());
-            }}
+            onClick={handleCopy}
             className="text-xs px-2 py-1 hover:bg-dark-800 rounded text-dark-400 transition-colors"
+            title="Copy"
           >
             Copy
           </button>
           <button
-            onClick={() => {
-              navigator.clipboard.readText().then(text => {
-                window.neusshAPI.sendSSH(connectionId, text);
-              });
-            }}
+            onClick={handlePaste}
             className="text-xs px-2 py-1 hover:bg-dark-800 rounded text-dark-400 transition-colors"
+            title="Paste"
           >
             Paste
           </button>
+          <button
+            onClick={handleSelectAll}
+            className="text-xs px-2 py-1 hover:bg-dark-800 rounded text-dark-400 transition-colors"
+            title="Select All"
+          >
+            Select All
+          </button>
+          <div className="w-px h-4 bg-dark-700 mx-1" />
           <button
             onClick={onDisconnect}
             className="text-xs px-2 py-1 bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded transition-colors"
