@@ -303,34 +303,12 @@ ipcMain.handle('app:getName', () => {
 });
 
 // ============================================================
-// App Lifecycle
+// App Lifecycle - FIXED
 // ============================================================
-
-app.whenReady().then(() => {
-  createWindow();
-});
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
-
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
-  }
-});
-
-app.on('web-contents-created', (event, contents) => {
-  contents.on('new-window', (event, navigationUrl) => {
-    event.preventDefault();
-    shell.openExternal(navigationUrl);
-  });
-});
 
 // Single instance lock
 const gotTheLock = app.requestSingleInstanceLock();
+
 if (!gotTheLock) {
   app.quit();
 } else {
@@ -339,5 +317,31 @@ if (!gotTheLock) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
     }
+  });
+
+  // Create window when app is ready
+  app.whenReady().then(() => {
+    createWindow();
+  }).catch(err => {
+    console.error('Failed to create window:', err);
+  });
+
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+      app.quit();
+    }
+  });
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+    }
+  });
+
+  app.on('web-contents-created', (event, contents) => {
+    contents.on('new-window', (event, navigationUrl) => {
+      event.preventDefault();
+      shell.openExternal(navigationUrl);
+    });
   });
 }
