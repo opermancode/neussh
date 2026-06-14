@@ -1,5 +1,9 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, session, safeStorage } = require('electron');
 const path = require('path');
+
+// Disable GPU acceleration to prevent black screen on some Windows systems
+app.commandLine.appendSwitch('disable-gpu');
+app.disableHardwareAcceleration();
 const crypto = require('crypto');
 const os = require('os');
 const Store = require('electron-store');
