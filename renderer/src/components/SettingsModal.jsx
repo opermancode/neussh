@@ -64,7 +64,7 @@ const SettingsModal = ({ onImport, onExport, onClose }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-dark-900 border border-dark-700 rounded-2xl shadow-2xl w-full max-w-md">
+      <div className="bg-dark-900 border border-dark-700 rounded-2xl shadow-2xl w-full max-w-md animate-scale-in">
         <div className="flex items-center justify-between p-5 border-b border-dark-800">
           <h2 className="text-lg font-semibold text-dark-100">Settings</h2>
           <button 
