@@ -258,36 +258,35 @@ const App = () => {
 
   const handleImportProfiles = useCallback(async () => {
     try {
-      const filePath = await window.neusshAPI.importProfilesDialog();
-      if (filePath) {
-        const result = await window.neusshAPI.importProfiles(filePath);
-        if (result.success) {
-          await loadProfiles();
-          setError(`Imported ${result.count} profiles`);
-        } else {
-          setError(`Import failed: ${result.error}`);
-        }
+      const result = await window.neusshAPI.importProfiles();
+      if (result.success) {
+        await loadProfiles();
+        setError(`Imported ${result.count} profiles`);
+        return result;
+      } else if (result.error !== 'Cancelled') {
+        setError(`Import failed: ${result.error}`);
       }
+      return result;
     } catch (err) {
       console.error('Error importing:', err);
       setError('Failed to import profiles');
+      return { success: false, error: err.message };
     }
   }, []);
 
   const handleExportProfiles = useCallback(async () => {
     try {
-      const filePath = await window.neusshAPI.exportProfilesDialog();
-      if (filePath) {
-        const result = await window.neusshAPI.exportProfiles(filePath);
-        if (result.success) {
-          setError('Profiles exported successfully');
-        } else {
-          setError(`Export failed: ${result.error}`);
-        }
+      const result = await window.neusshAPI.exportProfiles();
+      if (result.success) {
+        setError('Profiles exported successfully');
+      } else if (result.error !== 'Cancelled') {
+        setError(`Export failed: ${result.error}`);
       }
+      return result;
     } catch (err) {
       console.error('Error exporting:', err);
       setError('Failed to export profiles');
+      return { success: false, error: err.message };
     }
   }, []);
 
