@@ -13,6 +13,7 @@ const QuickConnectModal = ({ onConnect, onClose }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState({});
   const [isConnecting, setIsConnecting] = useState(false);
+  const [keyDisplayName, setKeyDisplayName] = useState('');
 
   const validate = useCallback(() => {
     const newErrors = {};
@@ -49,9 +50,15 @@ const QuickConnectModal = ({ onConnect, onClose }) => {
 
   const browseKeyFile = useCallback(async () => {
     try {
-      const path = await window.neusshAPI.selectKeyFile();
-      if (path) {
-        setFormData(prev => ({ ...prev, keyPath: path }));
+      const result = await window.neusshAPI.selectKeyFile();
+      if (result) {
+        if (typeof result === 'object' && result.token) {
+          setFormData(prev => ({ ...prev, keyPath: result.token }));
+          setKeyDisplayName(result.display || 'Key file selected');
+        } else if (typeof result === 'string') {
+          setFormData(prev => ({ ...prev, keyPath: result }));
+          setKeyDisplayName(result);
+        }
         setErrors(prev => ({ ...prev, keyPath: null }));
       }
     } catch (err) {
@@ -162,7 +169,7 @@ const QuickConnectModal = ({ onConnect, onClose }) => {
               <div className="flex gap-2">
                 <input
                   type="text"
-                  value={formData.keyPath}
+                  value={keyDisplayName || formData.keyPath || ''}
                   readOnly
                   placeholder="Select key file"
                   className={`flex-1 bg-dark-950 border rounded-lg px-3 py-2 text-sm text-dark-200 placeholder-dark-600 ${
