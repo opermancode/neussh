@@ -48,14 +48,12 @@ contextBridge.exposeInMainWorld('neusshAPI', {
     return ipcRenderer.invoke('profile:reorder', ids);
   },
   
-  importProfiles: (filePath) => {
-    validateString(filePath, 'filePath');
-    return ipcRenderer.invoke('profile:import', filePath);
+  importProfiles: () => {
+    return ipcRenderer.invoke('profile:import');
   },
   
-  exportProfiles: (filePath) => {
-    validateString(filePath, 'filePath');
-    return ipcRenderer.invoke('profile:export', filePath);
+  exportProfiles: () => {
+    return ipcRenderer.invoke('profile:export');
   },
   
   // SSH operations
@@ -112,8 +110,6 @@ contextBridge.exposeInMainWorld('neusshAPI', {
   // Dialogs
   selectKeyFile: () => ipcRenderer.invoke('dialog:selectKey'),
   selectFolder: () => ipcRenderer.invoke('dialog:selectFolder'),
-  exportProfilesDialog: () => ipcRenderer.invoke('dialog:exportProfiles'),
-  importProfilesDialog: () => ipcRenderer.invoke('dialog:importProfiles'),
   
   // System
   getVersion: () => ipcRenderer.invoke('app:getVersion'),
