@@ -1,8 +1,18 @@
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
+import { Minus, Plus } from 'lucide-react';
 import 'xterm/css/xterm.css';
+
+function formatDuration(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
 
 const TerminalPanel = ({ connectionId, profile, onDisconnect }) => {
   const terminalRef = useRef(null);
@@ -10,13 +20,25 @@ const TerminalPanel = ({ connectionId, profile, onDisconnect }) => {
   const fitAddonRef = useRef(null);
   const resizeObserverRef = useRef(null);
   const cleanupRef = useRef(null);
+  const [fontSize, setFontSize] = useState(14);
+  const [duration, setDuration] = useState(0);
+  const startTimeRef = useRef(Date.now());
+
+  // Session timer
+  useEffect(() => {
+    startTimeRef.current = Date.now();
+    const timer = setInterval(() => {
+      setDuration(Math.floor((Date.now() - startTimeRef.current) / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [connectionId]);
 
   // Initialize terminal
   useEffect(() => {
     const term = new Terminal({
       cursorBlink: true,
       cursorStyle: 'block',
-      fontSize: 14,
+      fontSize,
       fontFamily: '"JetBrains Mono", "Fira Code", Consolas, monospace',
       theme: {
         background: '#0c0c0c',
@@ -116,7 +138,9 @@ const TerminalPanel = ({ connectionId, profile, onDisconnect }) => {
         cleanupRef.current();
       }
     };
-  }, [connectionId]);
+    // Re-create terminal when fontSize changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectionId, fontSize]);
 
   // Handle copy/paste
   useEffect(() => {
@@ -156,7 +180,6 @@ const TerminalPanel = ({ connectionId, profile, onDisconnect }) => {
     return () => document.removeEventListener('keydown', handleKey);
   }, [connectionId]);
 
-  // Handle selection for copy
   const handleCopy = useCallback(() => {
     const term = xtermRef.current;
     if (term && term.hasSelection()) {
@@ -183,39 +206,64 @@ const TerminalPanel = ({ connectionId, profile, onDisconnect }) => {
     }
   }, []);
 
+  const adjustFontSize = useCallback((delta) => {
+    setFontSize(prev => Math.max(10, Math.min(28, prev + delta)));
+  }, []);
+
   return (
-    <div className="h-full flex flex-col bg-[#0c0c0c]">
+    <div className="h-full flex flex-col bg-[#0c0c0c] animate-fade-in">
       {/* Terminal Toolbar */}
       <div className="h-9 bg-dark-900 border-b border-dark-800 flex items-center px-3 justify-between shrink-0">
-        <div className="flex items-center gap-3 text-xs">
-          <span className="text-dark-400 font-mono">{profile.username}@{profile.host}</span>
-          <span className="text-dark-700">|</span>
-          <span className="text-dark-500">Port {profile.port || 22}</span>
-          <span className="text-dark-700">|</span>
+        <div className="flex items-center gap-3 text-xs min-w-0">
+          <span className="text-dark-400 font-mono truncate max-w-[200px]">{profile.username}@{profile.host}</span>
+          <span className="text-dark-700 hidden sm:inline">|</span>
+          <span className="text-dark-500 hidden sm:inline">Port {profile.port || 22}</span>
+          <span className="text-dark-700 hidden sm:inline">|</span>
           <span className="text-emerald-400 flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            Connected
+            <span className="hidden sm:inline">Connected</span>
           </span>
+          <span className="text-dark-700 hidden sm:inline">|</span>
+          <span className="text-dark-500 font-mono">{formatDuration(duration)}</span>
         </div>
         <div className="flex items-center gap-1">
+          {/* Font size controls */}
+          <div className="flex items-center gap-0.5 mr-1">
+            <button
+              onClick={() => adjustFontSize(-1)}
+              className="p-1 hover:bg-dark-800 rounded text-dark-500 hover:text-dark-300 transition-colors"
+              title="Decrease font size"
+            >
+              <Minus className="w-3 h-3" />
+            </button>
+            <span className="text-xs text-dark-500 w-6 text-center font-mono">{fontSize}</span>
+            <button
+              onClick={() => adjustFontSize(1)}
+              className="p-1 hover:bg-dark-800 rounded text-dark-500 hover:text-dark-300 transition-colors"
+              title="Increase font size"
+            >
+              <Plus className="w-3 h-3" />
+            </button>
+          </div>
+          <div className="w-px h-4 bg-dark-700 mx-1" />
           <button
             onClick={handleCopy}
             className="text-xs px-2 py-1 hover:bg-dark-800 rounded text-dark-400 transition-colors"
-            title="Copy"
+            title="Copy (Ctrl+C)"
           >
             Copy
           </button>
           <button
             onClick={handlePaste}
             className="text-xs px-2 py-1 hover:bg-dark-800 rounded text-dark-400 transition-colors"
-            title="Paste"
+            title="Paste (Ctrl+V)"
           >
             Paste
           </button>
           <button
             onClick={handleSelectAll}
-            className="text-xs px-2 py-1 hover:bg-dark-800 rounded text-dark-400 transition-colors"
-            title="Select All"
+            className="text-xs px-2 py-1 hover:bg-dark-800 rounded text-dark-400 transition-colors hidden sm:inline"
+            title="Select All (Ctrl+A)"
           >
             Select All
           </button>
@@ -223,6 +271,7 @@ const TerminalPanel = ({ connectionId, profile, onDisconnect }) => {
           <button
             onClick={onDisconnect}
             className="text-xs px-2 py-1 bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded transition-colors"
+            title="Disconnect (Ctrl+D)"
           >
             Disconnect
           </button>
