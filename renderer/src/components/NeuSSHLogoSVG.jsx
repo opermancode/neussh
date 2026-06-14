@@ -23,11 +23,11 @@ const NeuSSHLogoSVG = ({ size = 40, className = '' }) => {
         textAnchor="middle" 
         fontFamily="'Inter', 'JetBrains Mono', sans-serif" 
         fontWeight="bold" 
-        fontSize="42"
+        fontSize="36"
         fill="white"
       >
-        <tspan fill="#ffffff">N</tspan>
-        <tspan fill="#bae6fd" fontSize="38">SH</tspan>
+        <tspan fill="#ffffff">Neu</tspan>
+        <tspan fill="#bae6fd" fontSize="32">SSH</tspan>
       </text>
     </svg>
   );

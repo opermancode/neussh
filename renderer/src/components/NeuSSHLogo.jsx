@@ -27,7 +27,7 @@ const NeuSSHLogo = ({ size = 'default', className = '' }) => {
       `}
       style={{ fontFamily: "'Inter', 'JetBrains Mono', sans-serif" }}
     >
-      <span>NShell</span>
+      <span>Neu</span><span className="text-neussh-200">SSH</span>
     </div>
   );
 };

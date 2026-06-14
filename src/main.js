@@ -1,5 +1,7 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, session } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, session, safeStorage } = require('electron');
 const path = require('path');
+const crypto = require('crypto');
+const os = require('os');
 const Store = require('electron-store');
 const { Client } = require('ssh2');
 const { readFileSync } = require('fs');
@@ -14,10 +16,21 @@ const APP_NAME = 'NeuSSH';
 const STORE_NAME = 'neussh-profiles';
 const IS_DEV = !app.isPackaged;
 
+// Derive encryption key from OS-level safe storage (or machine fingerprint as fallback)
+function getEncryptionKey() {
+  const appPath = app.getPath('userData');
+  if (safeStorage.isEncryptionAvailable()) {
+    const encrypted = safeStorage.encryptString('neussh-key-v1-' + appPath);
+    return crypto.createHash('sha256').update(encrypted).digest('hex');
+  }
+  const machineId = os.hostname() + appPath + process.env.USER;
+  return crypto.createHash('sha256').update(machineId).digest('hex').slice(0, 32);
+}
+
 // Initialize secure storage with encryption
 const store = new Store({
   name: STORE_NAME,
-  encryptionKey: 'neussh-secure-storage-v1-2024',
+  encryptionKey: getEncryptionKey(),
   clearInvalidConfig: true
 });
 
@@ -482,7 +495,7 @@ if (!gotTheLock) {
   app.quit();
 } else {
   // Second instance handler
-  app.on('second-instance', (event, commandLine, workingDirectory) => {
+  app.on('second-instance', () => {
     console.log('Second instance detected, focusing existing window...');
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
@@ -503,7 +516,7 @@ if (!gotTheLock) {
         responseHeaders: {
           ...details.responseHeaders,
           'Content-Security-Policy': [
-            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self'; img-src 'self' data:;"
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data:;"
           ]
         }
       });
