@@ -1,15 +1,15 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, session, safeStorage } = require('electron');
 const path = require('path');
-
-// Disable GPU acceleration to prevent black screen on some Windows systems
-app.commandLine.appendSwitch('disable-gpu');
-app.disableHardwareAcceleration();
 const crypto = require('crypto');
-const os = require('os');
+const fs = require('fs');
 const Store = require('electron-store');
 const { Client } = require('ssh2');
 const { readFileSync } = require('fs');
 const { v4: uuidv4 } = require('uuid');
+
+// Disable GPU acceleration to prevent black screen on some Windows systems
+app.commandLine.appendSwitch('disable-gpu');
+app.disableHardwareAcceleration();
 
 // ============================================================
 // NeuSSH - Modern SSH Connection Manager
@@ -20,15 +20,26 @@ const APP_NAME = 'NeuSSH';
 const STORE_NAME = 'neussh-profiles';
 const IS_DEV = !app.isPackaged;
 
-// Derive encryption key from OS-level safe storage (or machine fingerprint as fallback)
+// ------------------------------------------------------------------
+// Secure encryption key derivation
+// ------------------------------------------------------------------
 function getEncryptionKey() {
-  const appPath = app.getPath('userData');
+  // Prefer Electron's safeStorage (OS-level encryption: Keychain/DPAPI)
   if (safeStorage.isEncryptionAvailable()) {
-    const encrypted = safeStorage.encryptString('neussh-key-v1-' + appPath);
-    return crypto.createHash('sha256').update(encrypted).digest('hex');
+    const seed = 'neussh-key-v2';
+    const encrypted = safeStorage.encryptString(seed);
+    return crypto.createHash('sha256').update(encrypted).digest('hex').slice(0, 32);
   }
-  const machineId = os.hostname() + appPath + process.env.USER;
-  return crypto.createHash('sha256').update(machineId).digest('hex').slice(0, 32);
+
+  // Fallback: generate a random key on first run and persist it
+  const keyPath = path.join(app.getPath('userData'), '.neussh-key');
+  try {
+    return fs.readFileSync(keyPath, 'utf8').trim();
+  } catch {
+    const key = crypto.randomBytes(32).toString('hex');
+    fs.writeFileSync(keyPath, key, { mode: 0o600 });
+    return key;
+  }
 }
 
 // Initialize secure storage with encryption
@@ -37,6 +48,56 @@ const store = new Store({
   encryptionKey: getEncryptionKey(),
   clearInvalidConfig: true
 });
+
+// ------------------------------------------------------------------
+// IPC origin validation — only allow calls from our own window
+// ------------------------------------------------------------------
+const ALLOWED_ORIGINS = IS_DEV
+  ? ['http://localhost:3000', 'file://']
+  : ['file://'];
+
+function validateIPCOrigin(event) {
+  try {
+    const frame = event.senderFrame;
+    if (!frame) return false;
+    const url = frame.url;
+    return ALLOWED_ORIGINS.some(o => url.startsWith(o));
+  } catch {
+    return false;
+  }
+}
+
+// Wrapper to guard IPC handlers with origin check
+function secureHandle(channel, handler) {
+  ipcMain.handle(channel, (event, ...args) => {
+    if (!validateIPCOrigin(event)) {
+      console.error(`Blocked IPC call from untrusted origin: ${channel}`);
+      throw new Error('Access denied');
+    }
+    return handler(event, ...args);
+  });
+}
+
+// ------------------------------------------------------------------
+// Secrets management — passwords/passphrases never leave main process
+// ------------------------------------------------------------------
+const SECRET_FIELDS = ['password', 'keyPassphrase'];
+
+// Strip secrets before sending profiles to the renderer
+function stripSecrets(profile) {
+  if (!profile) return profile;
+  const sanitized = { ...profile };
+  for (const field of SECRET_FIELDS) {
+    delete sanitized[field];
+  }
+  return sanitized;
+}
+
+// Look up a full stored profile (with secrets) by ID
+function getFullProfile(id) {
+  const profiles = store.get('profiles', []);
+  return profiles.find(p => p.id === id) || null;
+}
 
 // State management
 let mainWindow = null;
@@ -130,16 +191,17 @@ function cleanupAllConnections() {
 // IPC Handlers - Profile Management
 // ============================================================
 
-ipcMain.handle('profile:getAll', () => {
+secureHandle('profile:getAll', () => {
   try {
-    return store.get('profiles', []);
+    const profiles = store.get('profiles', []);
+    return profiles.map(stripSecrets);
   } catch (err) {
     console.error('Error getting profiles:', err);
     return [];
   }
 });
 
-ipcMain.handle('profile:save', (event, profile) => {
+secureHandle('profile:save', (event, profile) => {
   try {
     const profiles = store.get('profiles', []);
     const now = new Date().toISOString();
@@ -147,10 +209,16 @@ ipcMain.handle('profile:save', (event, profile) => {
     if (profile.id) {
       const index = profiles.findIndex(p => p.id === profile.id);
       if (index !== -1) {
-        profiles[index] = { 
-          ...profile, 
-          updatedAt: now 
-        };
+        // Preserve existing secret fields if not provided in update
+        const existing = profiles[index];
+        const merged = { ...profile };
+        for (const field of SECRET_FIELDS) {
+          if (merged[field] === undefined || merged[field] === null || merged[field] === '') {
+            merged[field] = existing[field];
+          }
+        }
+        merged.updatedAt = now;
+        profiles[index] = merged;
       } else {
         return { success: false, error: 'Profile not found' };
       }
@@ -162,14 +230,14 @@ ipcMain.handle('profile:save', (event, profile) => {
     }
     
     store.set('profiles', profiles);
-    return { success: true, profile };
+    return { success: true, profile: stripSecrets(profile) };
   } catch (err) {
     console.error('Error saving profile:', err);
     return { success: false, error: err.message };
   }
 });
 
-ipcMain.handle('profile:delete', (event, id) => {
+secureHandle('profile:delete', (event, id) => {
   try {
     const profiles = store.get('profiles', []);
     const filtered = profiles.filter(p => p.id !== id);
@@ -181,7 +249,7 @@ ipcMain.handle('profile:delete', (event, id) => {
   }
 });
 
-ipcMain.handle('profile:reorder', (event, orderedIds) => {
+secureHandle('profile:reorder', (event, orderedIds) => {
   try {
     const profiles = store.get('profiles', []);
     const reordered = orderedIds.map(id => profiles.find(p => p.id === id)).filter(Boolean);
@@ -193,9 +261,20 @@ ipcMain.handle('profile:reorder', (event, orderedIds) => {
   }
 });
 
-ipcMain.handle('profile:import', async (event, filePath) => {
+// Import/export — dialog + file I/O entirely in main process
+secureHandle('profile:import', async () => {
   try {
-    const data = require('fs').readFileSync(filePath, 'utf8');
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Import NeuSSH Profiles',
+      properties: ['openFile'],
+      filters: [{ name: 'JSON', extensions: ['json'] }]
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return { success: false, error: 'Cancelled' };
+    }
+    const filePath = result.filePaths[0];
+    const resolvedPath = path.resolve(filePath);
+    const data = fs.readFileSync(resolvedPath, 'utf8');
     const imported = JSON.parse(data);
     
     if (!Array.isArray(imported)) {
@@ -205,7 +284,7 @@ ipcMain.handle('profile:import', async (event, filePath) => {
     const profiles = store.get('profiles', []);
     let added = 0;
     
-    imported.forEach(profile => {
+    for (const profile of imported) {
       if (profile && typeof profile === 'object' && !profiles.find(p => p.id === profile.id)) {
         profiles.push({ 
           ...profile, 
@@ -214,7 +293,7 @@ ipcMain.handle('profile:import', async (event, filePath) => {
         });
         added++;
       }
-    });
+    }
     
     store.set('profiles', profiles);
     return { success: true, count: added };
@@ -224,10 +303,19 @@ ipcMain.handle('profile:import', async (event, filePath) => {
   }
 });
 
-ipcMain.handle('profile:export', async (event, filePath) => {
+secureHandle('profile:export', async () => {
   try {
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Export NeuSSH Profiles',
+      defaultPath: 'neussh-profiles.json',
+      filters: [{ name: 'JSON', extensions: ['json'] }]
+    });
+    if (result.canceled || !result.filePath) {
+      return { success: false, error: 'Cancelled' };
+    }
+    const filePath = path.resolve(result.filePath);
     const profiles = store.get('profiles', []);
-    require('fs').writeFileSync(filePath, JSON.stringify(profiles, null, 2));
+    fs.writeFileSync(filePath, JSON.stringify(profiles.map(stripSecrets), null, 2));
     return { success: true };
   } catch (err) {
     console.error('Error exporting profiles:', err);
@@ -239,7 +327,32 @@ ipcMain.handle('profile:export', async (event, filePath) => {
 // IPC Handlers - SSH Connection
 // ============================================================
 
-ipcMain.handle('ssh:connect', async (event, profile) => {
+// Key file paths are stored in main process after dialog selection
+const keyFilePaths = new Map();
+let keyFilePathCounter = 0;
+
+secureHandle('dialog:selectKey', async () => {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Select SSH Private Key - NeuSSH',
+      properties: ['openFile'],
+      filters: [
+        { name: 'SSH Keys', extensions: ['pem', 'ppk', 'key', 'rsa', 'ed25519'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const resolved = path.resolve(result.filePaths[0]);
+    const token = `key:${++keyFilePathCounter}`;
+    keyFilePaths.set(token, resolved);
+    return { token, display: path.basename(resolved) };
+  } catch (err) {
+    console.error('Error selecting key:', err);
+    return null;
+  }
+});
+
+secureHandle('ssh:connect', async (event, profile) => {
   return new Promise((resolve, reject) => {
     try {
       const conn = new Client();
@@ -317,30 +430,45 @@ ipcMain.handle('ssh:connect', async (event, profile) => {
         cleanupConnection(connectionId);
       });
       
+      // Resolve full profile (with secrets) for saved connections
+      let effectiveProfile = profile;
+      if (profile.id) {
+        const stored = getFullProfile(profile.id);
+        if (stored) {
+          effectiveProfile = stored;
+        }
+      }
+
       // Build connection config
       const config = {
-        host: profile.host,
-        port: parseInt(profile.port) || 22,
-        username: profile.username,
+        host: effectiveProfile.host,
+        port: parseInt(effectiveProfile.port) || 22,
+        username: effectiveProfile.username,
         readyTimeout: 20000,
         keepaliveInterval: 10000
       };
       
       // Handle authentication
-      if (profile.authType === 'password') {
-        config.password = profile.password;
-      } else if (profile.authType === 'key' && profile.keyPath) {
+      if (effectiveProfile.authType === 'password') {
+        config.password = effectiveProfile.password;
+      } else if (effectiveProfile.authType === 'key' && effectiveProfile.keyPath) {
         try {
-          config.privateKey = readFileSync(profile.keyPath);
-          if (profile.keyPassphrase) {
-            config.passphrase = profile.keyPassphrase;
+          // Resolve key path — could be a token from dialog:selectKey or a direct path
+          let keyPath = effectiveProfile.keyPath;
+          if (keyPath.startsWith('key:')) {
+            const resolved = keyFilePaths.get(keyPath);
+            if (resolved) keyPath = resolved;
+          }
+          config.privateKey = readFileSync(keyPath);
+          if (effectiveProfile.keyPassphrase) {
+            config.passphrase = effectiveProfile.keyPassphrase;
           }
         } catch (err) {
           clearTimeout(timeout);
           reject({ success: false, error: `Cannot read key file: ${err.message}` });
           return;
         }
-      } else if (profile.authType === 'agent') {
+      } else if (effectiveProfile.authType === 'agent') {
         config.agent = process.env.SSH_AUTH_SOCK;
       }
       
@@ -351,7 +479,7 @@ ipcMain.handle('ssh:connect', async (event, profile) => {
   });
 });
 
-ipcMain.handle('ssh:send', (event, { connectionId, data }) => {
+secureHandle('ssh:send', (event, { connectionId, data }) => {
   try {
     const conn = activeConnections.get(connectionId);
     if (conn && conn._stream && !conn._stream.destroyed) {
@@ -365,7 +493,7 @@ ipcMain.handle('ssh:send', (event, { connectionId, data }) => {
   }
 });
 
-ipcMain.handle('ssh:resize', (event, { connectionId, cols, rows }) => {
+secureHandle('ssh:resize', (event, { connectionId, cols, rows }) => {
   try {
     const conn = activeConnections.get(connectionId);
     if (conn && conn._stream && !conn._stream.destroyed) {
@@ -379,7 +507,7 @@ ipcMain.handle('ssh:resize', (event, { connectionId, cols, rows }) => {
   }
 });
 
-ipcMain.handle('ssh:disconnect', (event, connectionId) => {
+secureHandle('ssh:disconnect', (event, connectionId) => {
   try {
     cleanupConnection(connectionId);
     return true;
@@ -393,84 +521,41 @@ ipcMain.handle('ssh:disconnect', (event, connectionId) => {
 // IPC Handlers - File Dialogs & System
 // ============================================================
 
-ipcMain.handle('dialog:selectKey', async () => {
-  try {
-    const result = await dialog.showOpenDialog(mainWindow, {
-      title: 'Select SSH Private Key - NeuSSH',
-      properties: ['openFile'],
-      filters: [
-        { name: 'SSH Keys', extensions: ['pem', 'ppk', 'key', 'rsa', 'ed25519'] },
-        { name: 'All Files', extensions: ['*'] }
-      ]
-    });
-    
-    if (!result.canceled && result.filePaths.length > 0) {
-      return result.filePaths[0];
-    }
-    return null;
-  } catch (err) {
-    console.error('Error selecting key:', err);
-    return null;
-  }
-});
-
-ipcMain.handle('dialog:selectFolder', async () => {
+secureHandle('dialog:selectFolder', async () => {
   try {
     const result = await dialog.showOpenDialog(mainWindow, {
       title: 'Select Folder - NeuSSH',
       properties: ['openDirectory']
     });
-    
-    if (!result.canceled && result.filePaths.length > 0) {
-      return result.filePaths[0];
-    }
-    return null;
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
   } catch (err) {
     console.error('Error selecting folder:', err);
     return null;
   }
 });
 
-ipcMain.handle('dialog:exportProfiles', async () => {
-  try {
-    const result = await dialog.showSaveDialog(mainWindow, {
-      title: 'Export NeuSSH Profiles',
-      defaultPath: 'neussh-profiles.json',
-      filters: [{ name: 'JSON', extensions: ['json'] }]
-    });
-    return result.canceled ? null : result.filePath;
-  } catch (err) {
-    console.error('Error exporting profiles:', err);
-    return null;
-  }
-});
-
-ipcMain.handle('dialog:importProfiles', async () => {
-  try {
-    const result = await dialog.showOpenDialog(mainWindow, {
-      title: 'Import NeuSSH Profiles',
-      properties: ['openFile'],
-      filters: [{ name: 'JSON', extensions: ['json'] }]
-    });
-    
-    if (!result.canceled && result.filePaths.length > 0) {
-      return result.filePaths[0];
-    }
-    return null;
-  } catch (err) {
-    console.error('Error importing profiles:', err);
-    return null;
-  }
-});
-
-ipcMain.handle('shell:openExternal', (event, url) => {
+secureHandle('shell:openExternal', (event, url) => {
   try {
     // Validate URL to prevent security issues
     const allowedProtocols = ['http:', 'https:'];
     const urlObj = new URL(url);
     if (allowedProtocols.includes(urlObj.protocol)) {
-      shell.openExternal(url);
-      return true;
+      const hostname = urlObj.hostname.toLowerCase();
+      // Block private/internal IP ranges
+      const isPrivate =
+        hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        hostname === '::1' ||
+        hostname.startsWith('10.') ||
+        hostname.startsWith('192.168.') ||
+        hostname.startsWith('172.16.') ||
+        hostname.endsWith('.local') ||
+        hostname.endsWith('.internal');
+      if (!isPrivate) {
+        shell.openExternal(url);
+        return true;
+      }
     }
     return false;
   } catch (err) {
@@ -479,11 +564,11 @@ ipcMain.handle('shell:openExternal', (event, url) => {
   }
 });
 
-ipcMain.handle('app:getVersion', () => {
+secureHandle('app:getVersion', () => {
   return app.getVersion();
 });
 
-ipcMain.handle('app:getName', () => {
+secureHandle('app:getName', () => {
   return APP_NAME;
 });
 
@@ -520,7 +605,7 @@ if (!gotTheLock) {
         responseHeaders: {
           ...details.responseHeaders,
           'Content-Security-Policy': [
-            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data:;"
+            "default-src 'self'; script-src 'self' 'unsafe-inline' 'strict-dynamic'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data:;"
           ]
         }
       });
