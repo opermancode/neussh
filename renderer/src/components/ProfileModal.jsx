@@ -17,6 +17,7 @@ const ProfileModal = ({ profile, onSave, onClose }) => {
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [testResult, setTestResult] = useState(null);
+  const [keyDisplayName, setKeyDisplayName] = useState('');
 
   useEffect(() => {
     if (profile) {
@@ -24,6 +25,15 @@ const ProfileModal = ({ profile, onSave, onClose }) => {
         ...profile,
         port: String(profile.port || 22)
       });
+      // Show display name for token-based key paths
+      if (profile.keyPath && typeof profile.keyPath === 'object' && profile.keyPath.token) {
+        setKeyDisplayName(profile.keyPath.display || 'Key file selected');
+        setFormData(prev => ({ ...prev, keyPath: profile.keyPath.token }));
+      } else if (typeof profile.keyPath === 'string' && profile.keyPath.startsWith('key:')) {
+        setKeyDisplayName('Key file selected');
+      } else if (profile.keyPath) {
+        setKeyDisplayName(profile.keyPath);
+      }
     }
   }, [profile]);
 
@@ -35,12 +45,13 @@ const ProfileModal = ({ profile, onSave, onClose }) => {
     if (formData.authType === 'key' && !formData.keyPath) {
       newErrors.keyPath = 'Key file is required';
     }
-    if (formData.authType === 'password' && !formData.password) {
+    // Only require password if not editing an existing profile
+    if (formData.authType === 'password' && !formData.password && !profile) {
       newErrors.password = 'Password is required';
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
-  }, [formData]);
+  }, [formData, profile]);
 
   const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
@@ -62,9 +73,15 @@ const ProfileModal = ({ profile, onSave, onClose }) => {
 
   const browseKeyFile = useCallback(async () => {
     try {
-      const path = await window.neusshAPI.selectKeyFile();
-      if (path) {
-        setFormData(prev => ({ ...prev, keyPath: path }));
+      const result = await window.neusshAPI.selectKeyFile();
+      if (result) {
+        if (typeof result === 'object' && result.token) {
+          setFormData(prev => ({ ...prev, keyPath: result.token }));
+          setKeyDisplayName(result.display || 'Key file selected');
+        } else if (typeof result === 'string') {
+          setFormData(prev => ({ ...prev, keyPath: result }));
+          setKeyDisplayName(result);
+        }
         setErrors(prev => ({ ...prev, keyPath: null }));
       }
     } catch (err) {
@@ -227,7 +244,7 @@ const ProfileModal = ({ profile, onSave, onClose }) => {
               <div className="flex gap-2">
                 <input
                   type="text"
-                  value={formData.keyPath}
+                  value={keyDisplayName || formData.keyPath || ''}
                   readOnly
                   placeholder="Click browse to select .pem, .ppk, or .key file"
                   className={`flex-1 bg-dark-950 border rounded-lg px-3 py-2 text-sm text-dark-200 placeholder-dark-600 focus:outline-none transition-colors ${
