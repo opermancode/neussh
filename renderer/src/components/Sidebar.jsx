@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { 
   Search, Plus, Zap, Server, Edit2, Trash2, 
   Key, Lock, Shield, Globe, ChevronRight, 
@@ -12,28 +12,24 @@ const Sidebar = ({
   searchQuery, onSearchChange, connections, activeConnectionId,
   isLoading
 }) => {
-  // Memoize auth icon renderer
-  const getAuthIcon = useMemo(() => (profile) => {
+  const renderAuthIcon = (profile) => {
     if (profile.authType === 'password') return <Lock className="w-3.5 h-3.5 text-amber-400" />;
     if (profile.authType === 'agent') return <Shield className="w-3.5 h-3.5 text-emerald-400" />;
     return <Key className="w-3.5 h-3.5 text-neussh-400" />;
-  }, []);
+  };
 
-  // Memoize auth label renderer
-  const getAuthLabel = useMemo(() => (profile) => {
+  const getAuthLabel = (profile) => {
     if (profile.authType === 'password') return 'Password';
     if (profile.authType === 'agent') return 'SSH Agent';
     const ext = profile.keyPath?.split('.').pop()?.toUpperCase();
     return ext ? `${ext} Key` : 'Key';
-  }, []);
+  };
 
-  // Check if profile is connected
-  const isProfileConnected = useMemo(() => (profileId) => {
+  const isProfileConnected = useCallback((profileId) => {
     return Array.from(connections.values()).some(conn => conn.profile.id === profileId);
   }, [connections]);
 
-  // Get connection for profile
-  const getProfileConnection = useMemo(() => (profileId) => {
+  const getProfileConnection = useCallback((profileId) => {
     return Array.from(connections.values()).find(conn => conn.profile.id === profileId);
   }, [connections]);
 
@@ -109,7 +105,7 @@ const Sidebar = ({
           </div>
         ) : (
           <div className="p-2 space-y-1">
-            {sortedProfiles.map((profile) => {
+            {sortedProfiles.map((profile, index) => {
               const isActive = selectedProfile?.id === profile.id;
               const isConnected = isProfileConnected(profile.id);
               const connection = getProfileConnection(profile.id);
@@ -118,72 +114,77 @@ const Sidebar = ({
               return (
                 <div
                   key={profile.id}
-                  onClick={() => {
-                    onSelectProfile(profile);
-                    if (isConnected && connection) {
-                      // Switch to existing connection
-                      onConnect(profile);
-                    }
-                  }}
-                  className={`group relative p-3 rounded-xl cursor-pointer transition-all ${
-                    isActive || isActiveConnection
-                      ? 'bg-neussh-500/10 border border-neussh-500/30' 
-                      : 'hover:bg-dark-800 border border-transparent'
-                  }`}
+                  className="sidebar-item"
+                  style={{ animationDelay: `${index * 0.03}s` }}
                 >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-medium text-sm text-dark-200 truncate">
-                          {profile.name}
-                        </h3>
-                        {isConnected && (
-                          <span 
-                            className={`w-2 h-2 rounded-full shrink-0 ${
-                              isActiveConnection ? 'bg-emerald-400 animate-pulse' : 'bg-emerald-600'
-                            }`}
-                            title={isActiveConnection ? 'Active' : 'Connected (background)'}
-                          />
-                        )}
-                      </div>
-                      
-                      <div className="flex items-center gap-1.5 text-xs text-dark-500 mb-1">
-                        <Globe className="w-3 h-3" />
-                        <span className="truncate">{profile.host}:{profile.port || 22}</span>
-                      </div>
-                      
-                      <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-1 text-xs text-dark-600">
-                          {getAuthIcon(profile)}
-                          <span>{getAuthLabel(profile)}</span>
+                  <div
+                    onClick={() => {
+                      onSelectProfile(profile);
+                      if (isConnected && connection) {
+                        onConnect(profile);
+                      }
+                    }}
+                    onDoubleClick={() => !isConnected && onConnect(profile)}
+                    className={`group relative p-3 rounded-xl cursor-pointer transition-all duration-150 ${
+                      isActive || isActiveConnection
+                        ? 'bg-neussh-500/10 border border-neussh-500/30' 
+                        : 'hover:bg-dark-800 border border-transparent hover:border-dark-700'
+                    } ${isConnected ? 'border-l-2 border-l-emerald-500' : 'border-l-2 border-l-transparent'}`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h3 className="font-medium text-sm text-dark-200 truncate">
+                            {profile.name}
+                          </h3>
+                          {isConnected && (
+                            <span 
+                              className={`w-2 h-2 rounded-full shrink-0 ${
+                                isActiveConnection ? 'bg-emerald-400 animate-pulse shadow-lg shadow-emerald-400/30' : 'bg-emerald-600'
+                              }`}
+                              title={isActiveConnection ? 'Active' : 'Connected (background)'}
+                            />
+                          )}
                         </div>
-                        <span className="text-dark-700">•</span>
-                        <span className="text-xs text-dark-600">{profile.username}</span>
+                        
+                        <div className="flex items-center gap-1.5 text-xs text-dark-500 mb-1">
+                          <Globe className="w-3 h-3 shrink-0" />
+                          <span className="truncate" title={`${profile.host}:${profile.port || 22}`}>{profile.host}:{profile.port || 22}</span>
+                        </div>
+                        
+                        <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1 text-xs text-dark-600">
+                            {renderAuthIcon(profile)}
+                            <span>{getAuthLabel(profile)}</span>
+                          </div>
+                          <span className="text-dark-700">•</span>
+                          <span className="text-xs text-dark-600 truncate max-w-[80px]" title={profile.username}>{profile.username}</span>
+                        </div>
                       </div>
-                    </div>
 
-                    <div className={`flex flex-col gap-1 ${isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); onConnect(profile); }}
-                        className="p-1 hover:bg-neussh-500/20 rounded-lg text-neussh-400"
-                        title={isConnected ? 'Switch to this server' : 'Connect'}
-                      >
-                        <ChevronRight className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); onEdit(profile); }}
-                        className="p-1 hover:bg-dark-700 rounded-lg text-dark-400"
-                        title="Edit"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); onDelete(profile.id); }}
-                        className="p-1 hover:bg-red-500/20 rounded-lg text-red-400"
-                        title="Delete"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      <div className={`flex flex-col gap-1 ${isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity duration-150`}>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onConnect(profile); }}
+                          className="p-1 hover:bg-neussh-500/20 rounded-lg text-neussh-400 transition-colors"
+                          title={isConnected ? 'Switch to this server' : 'Connect'}
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onEdit(profile); }}
+                          className="p-1 hover:bg-dark-700 rounded-lg text-dark-400 transition-colors"
+                          title="Edit"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onDelete(profile.id); }}
+                          className="p-1 hover:bg-red-500/20 rounded-lg text-red-400 transition-colors"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
