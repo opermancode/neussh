@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import TerminalPanel from './components/TerminalPanel';
 import ProfileModal from './components/ProfileModal';
 import QuickConnectModal from './components/QuickConnectModal';
 import SettingsModal from './components/SettingsModal';
 import NeuSSHLogo from './components/NeuSSHLogo';
-import { Terminal, Plus, Zap, Settings, Github, AlertCircle, X } from 'lucide-react';
+import { Plus, Zap, Settings, Github, AlertCircle, X } from 'lucide-react';
 
 const App = () => {
   const [profiles, setProfiles] = useState([]);
@@ -21,6 +21,7 @@ const App = () => {
   const [appName, setAppName] = useState('NeuSSH');
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const connectionsOrderRef = useRef([]);
 
   // Load profiles on mount
   useEffect(() => {
@@ -36,6 +37,50 @@ const App = () => {
       return () => clearTimeout(timer);
     }
   }, [error]);
+
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const connArray = Array.from(connections.values());
+      if (connArray.length === 0) return;
+
+      // Ctrl+D — disconnect active connection
+      if (e.ctrlKey && e.key === 'd' && activeConnectionId) {
+        e.preventDefault();
+        handleDisconnect(activeConnectionId);
+        return;
+      }
+
+      // Ctrl+Tab — next tab
+      if (e.ctrlKey && e.key === 'Tab' && !e.shiftKey) {
+        e.preventDefault();
+        const currentIndex = connArray.findIndex(c => c.id === activeConnectionId);
+        const nextIndex = (currentIndex + 1) % connArray.length;
+        const nextConn = connArray[nextIndex];
+        if (nextConn) {
+          setActiveConnectionId(nextConn.id);
+          setSelectedProfile(nextConn.profile);
+        }
+        return;
+      }
+
+      // Ctrl+Shift+Tab — previous tab
+      if (e.ctrlKey && e.key === 'Tab' && e.shiftKey) {
+        e.preventDefault();
+        const currentIndex = connArray.findIndex(c => c.id === activeConnectionId);
+        const prevIndex = (currentIndex - 1 + connArray.length) % connArray.length;
+        const prevConn = connArray[prevIndex];
+        if (prevConn) {
+          setActiveConnectionId(prevConn.id);
+          setSelectedProfile(prevConn.profile);
+        }
+        return;
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [connections, activeConnectionId, handleDisconnect]);
 
   const loadProfiles = async () => {
     try {
@@ -80,6 +125,7 @@ const App = () => {
         };
         
         setConnections(prev => new Map(prev).set(result.connectionId, newConnection));
+        connectionsOrderRef.current = [...connectionsOrderRef.current, result.connectionId];
         setActiveConnectionId(result.connectionId);
         setSelectedProfile(profile);
         
@@ -112,6 +158,8 @@ const App = () => {
     try {
       await window.neusshAPI.disconnectSSH(connectionId);
       
+      connectionsOrderRef.current = connectionsOrderRef.current.filter(id => id !== connectionId);
+      
       setConnections(prev => {
         const newMap = new Map(prev);
         newMap.delete(connectionId);
@@ -119,11 +167,14 @@ const App = () => {
       });
       
       if (activeConnectionId === connectionId) {
-        // Switch to another connection if available
-        const remaining = Array.from(connections.values()).filter(c => c.id !== connectionId);
-        if (remaining.length > 0) {
-          setActiveConnectionId(remaining[0].id);
-          setSelectedProfile(remaining[0].profile);
+        const remainingOrder = connectionsOrderRef.current;
+        if (remainingOrder.length > 0) {
+          const nextId = remainingOrder[0];
+          const nextConn = connections.get(nextId);
+          if (nextConn) {
+            setActiveConnectionId(nextId);
+            setSelectedProfile(nextConn.profile);
+          }
         } else {
           setActiveConnectionId(null);
           setSelectedProfile(null);
@@ -144,6 +195,7 @@ const App = () => {
         console.error(`Error disconnecting ${id}:`, err);
       }
     }
+    connectionsOrderRef.current = [];
     setConnections(new Map());
     setActiveConnectionId(null);
     setSelectedProfile(null);
@@ -254,12 +306,17 @@ const App = () => {
     <div className="h-screen w-screen flex bg-dark-950 text-dark-100 overflow-hidden">
       {/* Error Toast */}
       {error && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-red-500/90 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 animate-fade-in">
-          <AlertCircle className="w-4 h-4" />
-          <span className="text-sm">{error}</span>
-          <button onClick={() => setError(null)} className="ml-2 hover:text-red-200">
-            ×
-          </button>
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 animate-slide-up">
+          <div className="bg-red-500/90 text-white px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-3 backdrop-blur-sm border border-red-400/20">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span className="text-sm font-medium">{error}</span>
+            <button 
+              onClick={() => setError(null)} 
+              className="ml-1 p-0.5 hover:bg-white/20 rounded transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -331,27 +388,34 @@ const App = () => {
 
         {/* Connection Tabs */}
         {connections.size > 0 && (
-          <div className="flex bg-dark-900 border-b border-dark-800 overflow-x-auto">
-            {Array.from(connections.values()).map(connection => (
-              <button
-                key={connection.id}
-                onClick={() => handleSwitchTab(connection.id)}
-                className={`flex items-center gap-2 px-4 py-2 text-sm border-r border-dark-800 transition-colors min-w-0 ${
-                  activeConnectionId === connection.id
-                    ? 'bg-dark-800 text-dark-100 border-b-2 border-b-neussh-500'
-                    : 'text-dark-500 hover:bg-dark-800/50 hover:text-dark-300'
-                }`}
-              >
-                <span className="truncate max-w-[150px]">{connection.profile.name}</span>
-                <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
-                <span
-                  onClick={(e) => handleCloseTab(connection.id, e)}
-                  className="ml-1 p-0.5 hover:bg-dark-700 rounded transition-colors"
+          <div className="flex bg-dark-900 border-b border-dark-800 overflow-x-auto tab-scroll">
+            {Array.from(connections.values()).map(connection => {
+              const isActive = activeConnectionId === connection.id;
+              return (
+                <button
+                  key={connection.id}
+                  onClick={() => handleSwitchTab(connection.id)}
+                  className={`group flex items-center gap-2 px-4 py-2 text-sm border-r border-dark-800 transition-all min-w-0 shrink-0 ${
+                    isActive
+                      ? 'bg-dark-800 text-dark-100 shadow-[inset_0_-2px_0_0] shadow-neussh-500'
+                      : 'text-dark-500 hover:bg-dark-800/50 hover:text-dark-300'
+                  }`}
                 >
-                  <X className="w-3 h-3" />
-                </span>
-              </button>
-            ))}
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${isActive ? 'bg-emerald-400' : 'bg-emerald-600'}`} />
+                  <span className="truncate max-w-[130px]">{connection.profile.name}</span>
+                  <span
+                    onClick={(e) => handleCloseTab(connection.id, e)}
+                    className={`ml-auto p-0.5 rounded transition-colors ${
+                      isActive 
+                        ? 'opacity-60 hover:opacity-100 hover:bg-dark-700' 
+                        : 'opacity-0 group-hover:opacity-60 hover:opacity-100 hover:bg-dark-700'
+                    }`}
+                  >
+                    <X className="w-3 h-3" />
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
 
@@ -365,8 +429,10 @@ const App = () => {
             />
           ) : (
             <div className="h-full flex flex-col items-center justify-center text-dark-500">
-              <div className="mb-6">
-                <NeuSSHLogo size="xl" />
+              <div className="mb-6 animate-fade-in">
+                <div className="flex justify-center">
+                  <NeuSSHLogo size="xl" />
+                </div>
                 <p className="text-xl font-semibold text-dark-300 mb-2 text-center mt-4">
                   {isLoading ? 'Loading...' : 'No Active Connection'}
                 </p>
@@ -380,21 +446,29 @@ const App = () => {
                 </p>
               </div>
               {!isLoading && connections.size === 0 && (
-                <div className="flex gap-3">
+                <div className="flex gap-3 animate-slide-up">
                   <button
                     onClick={() => setShowProfileModal(true)}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-neussh-600 hover:bg-neussh-500 text-white rounded-xl transition-all shadow-lg shadow-neussh-900/20"
+                    className="flex items-center gap-2 px-5 py-2.5 bg-neussh-600 hover:bg-neussh-500 text-white rounded-xl transition-all shadow-lg shadow-neussh-900/20 hover:shadow-neussh-900/40 hover:-translate-y-0.5 active:translate-y-0"
                   >
                     <Plus className="w-4 h-4" />
                     Add Server
                   </button>
                   <button
                     onClick={() => setShowQuickConnect(true)}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-dark-800 hover:bg-dark-700 text-dark-200 rounded-xl transition-all border border-dark-700"
+                    className="flex items-center gap-2 px-5 py-2.5 bg-dark-800 hover:bg-dark-700 text-dark-200 rounded-xl transition-all border border-dark-700 hover:border-dark-600 hover:-translate-y-0.5 active:translate-y-0"
                   >
                     <Zap className="w-4 h-4 text-amber-400" />
                     Quick Connect
                   </button>
+                </div>
+              )}
+              {!isLoading && connections.size > 0 && (
+                <div className="mt-6 text-xs text-dark-600 animate-fade-in">
+                  <span className="bg-dark-800 px-2 py-1 rounded-md font-mono">Ctrl+Tab</span>
+                  <span className="mx-2">Switch tabs</span>
+                  <span className="bg-dark-800 px-2 py-1 rounded-md font-mono ml-3">Ctrl+D</span>
+                  <span className="ml-2">Disconnect</span>
                 </div>
               )}
             </div>
